@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maven Index Search</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">M</div>
+      <div>
+        <h1>Maven Index Search</h1>
+        <p id="healthText">Loading index status</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="search-panel" aria-label="Search Maven artifacts">
+      <form id="searchForm" class="search-form">
+        <input
+          id="searchInput"
+          name="q"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="spring boot, junit, org.slf4j:slf4j-api"
+          aria-label="Search query">
+        <button type="submit">Search</button>
+      </form>
+      <div id="statusLine" class="status-line" role="status"></div>
+    </section>
+
+    <section class="content-grid">
+      <div class="results-region" aria-label="Search results">
+        <div id="resultsList" class="results-list"></div>
+      </div>
+
+      <aside id="detailsPanel" class="details-panel" aria-label="Artifact details">
+        <div class="empty-state">
+          <div class="empty-title">Select an artifact</div>
+          <div class="empty-copy">Versions and dependency coordinates appear here.</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

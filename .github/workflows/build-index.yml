@@ -1,0 +1,281 @@
+name: Build Maven Index DB
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build and publish even when Maven Central checksum and build config did not change"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-maven-index
+  cancel-in-progress: false
+
+env:
+  SOURCE_URL: https://repo1.maven.org/maven2/.index/nexus-maven-repository-index.gz
+  SCHEMA_VERSION: "2"
+  BLOB_FORMAT: miv2-zstd-bin
+  ENABLE_TRIGRAM: "false"
+  MAX_RECORDS: "0"
+  SHARDS: "512"
+  WORKERS: "4"
+  KEEP_RELEASES: "5"
+
+jobs:
+  build-index:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probe Maven Central index
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force == true }}
+        run: |
+          set -euo pipefail
+
+          source_sha1="$(
+            curl -fsSL --retry 5 --retry-delay 5 "${SOURCE_URL}.sha1" \
+              | awk '{print $1}' \
+              | tr '[:upper:]' '[:lower:]'
+          )"
+
+          headers="$RUNNER_TEMP/source.headers"
+          curl -fsSI --retry 5 --retry-delay 5 "$SOURCE_URL" -o "$headers"
+
+          if ! [[ "$source_sha1" =~ ^[0-9a-f]{40}$ ]]; then
+            source_sha1="$(
+              awk -F': *' 'tolower($1)=="x-checksum-sha1" {gsub(/\r/,"",$2); print tolower($2); exit}' "$headers"
+            )"
+          fi
+          if ! [[ "$source_sha1" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Unable to resolve Maven Central source SHA1 without downloading $SOURCE_URL"
+            exit 1
+          fi
+
+          source_size="$(
+            awk -F': *' 'tolower($1)=="content-length" {gsub(/\r/,"",$2); print $2; exit}' "$headers"
+          )"
+          source_etag="$(
+            awk -F': *' 'tolower($1)=="etag" {gsub(/\r/,"",$2); gsub(/"/,"",$2); print $2; exit}' "$headers"
+          )"
+
+          builder_tree_hash="$(
+            git ls-files -z builder/pom.xml builder/src \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}'
+          )"
+
+          config_hash="$(
+            printf 'sourceUrl=%s\nsourceSha1=%s\nschemaVersion=%s\nblobFormat=%s\nenableTrigram=%s\nmaxRecords=%s\nbuilderTreeHash=%s\n' \
+              "$SOURCE_URL" "$source_sha1" "$SCHEMA_VERSION" "$BLOB_FORMAT" "$ENABLE_TRIGRAM" "$MAX_RECORDS" "$builder_tree_hash" \
+              | sha256sum \
+              | awk '{print $1}'
+          )"
+
+          previous_source_sha1=""
+          previous_config_hash=""
+          previous_dir="$RUNNER_TEMP/previous-release"
+          mkdir -p "$previous_dir"
+          latest_tag="$(
+            gh release list \
+              --limit 100 \
+              --json tagName,createdAt \
+              --jq '[.[] | select(.tagName | startswith("index-"))] | sort_by(.createdAt) | reverse | .[0].tagName // ""'
+          )"
+
+          if [[ -n "$latest_tag" ]]; then
+            if gh release download "$latest_tag" --pattern metadata.json --dir "$previous_dir" --clobber >/dev/null 2>&1; then
+              previous_source_sha1="$(jq -r '.sourceSha1 // empty' "$previous_dir/metadata.json")"
+              previous_config_hash="$(jq -r '.configHash // empty' "$previous_dir/metadata.json")"
+            else
+              echo "Latest index release $latest_tag has no standalone metadata.json; rebuilding."
+            fi
+          fi
+
+          should_build="true"
+          if [[ "$FORCE_REBUILD" != "true" \
+              && "$previous_source_sha1" == "$source_sha1" \
+              && "$previous_config_hash" == "$config_hash" ]]; then
+            should_build="false"
+          fi
+
+          {
+            echo "source_sha1=$source_sha1"
+            echo "source_size=$source_size"
+            echo "source_etag=$source_etag"
+            echo "builder_tree_hash=$builder_tree_hash"
+            echo "config_hash=$config_hash"
+            echo "latest_tag=$latest_tag"
+            echo "should_build=$should_build"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "$should_build" == "false" ]]; then
+            echo "Maven Central index SHA1 and builder config are unchanged; skipping build."
+          else
+            echo "Index build required."
+            echo "Remote SHA1: $source_sha1"
+            echo "Config hash: $config_hash"
+          fi
+
+      - name: No index changes
+        if: steps.probe.outputs.should_build == 'false'
+        run: |
+          echo "No release published. Last index release: ${{ steps.probe.outputs.latest_tag }}"
+
+      - name: Set up Java 25
+        if: steps.probe.outputs.should_build == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Install packaging tools
+        if: steps.probe.outputs.should_build == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq sqlite3 zstd
+
+      - name: Build builder
+        if: steps.probe.outputs.should_build == 'true'
+        run: mvn -B -f builder/pom.xml clean package
+
+      - name: Download Maven Central packed index
+        if: steps.probe.outputs.should_build == 'true'
+        id: download
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source"
+          source_file="$RUNNER_TEMP/source/nexus-maven-repository-index.gz"
+          curl -fL --retry 5 --retry-delay 10 "$SOURCE_URL" -o "$source_file"
+
+          actual_sha1="$(sha1sum "$source_file" | awk '{print $1}')"
+          if [[ "$actual_sha1" != "${{ steps.probe.outputs.source_sha1 }}" ]]; then
+            echo "::error::Downloaded index SHA1 $actual_sha1 does not match remote ${{ steps.probe.outputs.source_sha1 }}"
+            exit 1
+          fi
+
+          actual_size="$(stat -c '%s' "$source_file")"
+          if [[ -n "${{ steps.probe.outputs.source_size }}" && "$actual_size" != "${{ steps.probe.outputs.source_size }}" ]]; then
+            echo "::error::Downloaded index size $actual_size does not match remote ${{ steps.probe.outputs.source_size }}"
+            exit 1
+          fi
+
+          echo "source_file=$source_file" >> "$GITHUB_OUTPUT"
+          echo "actual_size=$actual_size" >> "$GITHUB_OUTPUT"
+
+      - name: Build SQLite index
+        if: steps.probe.outputs.should_build == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          java -Xmx2g \
+            -cp "builder/target/maven-index-builder-2.0.0.jar:builder/target/lib/*" \
+            com.example.mavenindex.BuilderMain \
+            --source "${{ steps.download.outputs.source_file }}" \
+            --output "$RUNNER_TEMP/release" \
+            --shards "$SHARDS" \
+            --workers "$WORKERS"
+
+      - name: Finalize release metadata
+        if: steps.probe.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          jq \
+            --arg sourceUrl "$SOURCE_URL" \
+            --arg sourceSha1 "${{ steps.probe.outputs.source_sha1 }}" \
+            --arg sourceEtag "${{ steps.probe.outputs.source_etag }}" \
+            --arg builderTreeHash "${{ steps.probe.outputs.builder_tree_hash }}" \
+            --arg configHash "${{ steps.probe.outputs.config_hash }}" \
+            --argjson sourceSizeBytes "${{ steps.download.outputs.actual_size }}" \
+            '.sourceUrl = $sourceUrl
+              | .sourceSha1 = $sourceSha1
+              | .sourceEtag = $sourceEtag
+              | .sourceSizeBytes = $sourceSizeBytes
+              | .builderTreeHash = $builderTreeHash
+              | .configHash = $configHash' \
+            "$RUNNER_TEMP/release/metadata.json" > "$RUNNER_TEMP/release/metadata.final.json"
+          mv "$RUNNER_TEMP/release/metadata.final.json" "$RUNNER_TEMP/release/metadata.json"
+
+      - name: Validate DB and metadata
+        if: steps.probe.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/release/maven-index.db"
+          test -s "$RUNNER_TEMP/release/metadata.json"
+
+          artifact_count="$(sqlite3 "$RUNNER_TEMP/release/maven-index.db" "SELECT count(*) FROM artifacts")"
+          schema_version="$(sqlite3 "$RUNNER_TEMP/release/maven-index.db" "SELECT value FROM meta WHERE key='schema_version'")"
+          blob_format="$(sqlite3 "$RUNNER_TEMP/release/maven-index.db" "SELECT value FROM meta WHERE key='blob_format'")"
+          test "$artifact_count" -gt 0
+          test "$schema_version" = "$SCHEMA_VERSION"
+          test "$blob_format" = "$BLOB_FORMAT"
+
+          test "$(jq -r '.schemaVersion' "$RUNNER_TEMP/release/metadata.json")" = "$SCHEMA_VERSION"
+          test "$(jq -r '.blobFormat' "$RUNNER_TEMP/release/metadata.json")" = "$BLOB_FORMAT"
+          test "$(jq -r '.sourceSha1' "$RUNNER_TEMP/release/metadata.json")" = "${{ steps.probe.outputs.source_sha1 }}"
+          test "$(jq -r '.sourceSizeBytes' "$RUNNER_TEMP/release/metadata.json")" = "${{ steps.download.outputs.actual_size }}"
+          test "$(jq -r '.builderTreeHash' "$RUNNER_TEMP/release/metadata.json")" = "${{ steps.probe.outputs.builder_tree_hash }}"
+          test "$(jq -r '.configHash' "$RUNNER_TEMP/release/metadata.json")" = "${{ steps.probe.outputs.config_hash }}"
+
+          echo "artifact_count=$artifact_count"
+
+      - name: Package release assets
+        if: steps.probe.outputs.should_build == 'true'
+        id: package
+        run: |
+          set -euo pipefail
+          release_name="$(date -u +%Y%m%d-%H%M%S)"
+          package="maven-index-${release_name}.tar.zst"
+          (
+            cd "$RUNNER_TEMP/release"
+            sha256sum maven-index.db metadata.json > SHA256SUMS
+          )
+          tar -I 'zstd -19 -T0' \
+            -cf "$RUNNER_TEMP/$package" \
+            -C "$RUNNER_TEMP/release" \
+            maven-index.db metadata.json SHA256SUMS
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum "$package" > SHA256SUMS
+          )
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        if: steps.probe.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="index-${{ steps.package.outputs.release_name }}"
+          gh release create "$tag" \
+            "$RUNNER_TEMP/${{ steps.package.outputs.package }}" \
+            "$RUNNER_TEMP/SHA256SUMS" \
+            "$RUNNER_TEMP/release/metadata.json" \
+            --title "Maven index ${{ steps.package.outputs.release_name }}" \
+            --notes-file "$RUNNER_TEMP/release/metadata.json"
+
+      - name: Keep recent index releases
+        if: steps.probe.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("index-"))] | sort_by(.createdAt) | reverse | .[].tagName' \
+            | tail -n +"$((KEEP_RELEASES + 1))" \
+            | while read -r tag; do
+                gh release delete "$tag" --cleanup-tag --yes
+              done
