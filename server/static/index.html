@@ -8,6 +8,11 @@
 </head>
 <body>
   <header class="topbar">
+    <div class="hero-lines" aria-hidden="true">
+      <span class="cube cube-one"></span>
+      <span class="cube cube-two"></span>
+      <span class="cube cube-three"></span>
+    </div>
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">M</div>
       <div>
@@ -20,15 +25,19 @@
   <main class="shell">
     <section class="search-panel" aria-label="搜索 Maven 包">
       <form id="searchForm" class="search-form">
-        <input
-          id="searchInput"
-          name="q"
-          type="search"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="搜索 groupId、artifactId，例如 springboot、spring boot、org.slf4j:slf4j-api"
-          aria-label="搜索关键词">
-        <button type="submit">搜索</button>
+        <div class="search-field">
+          <span class="search-glyph" aria-hidden="true"></span>
+          <input
+            id="searchInput"
+            name="q"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="搜索 groupId、artifactId，例如 springboot、spring boot、org.slf4j:slf4j-api"
+            aria-label="搜索关键词">
+          <button id="clearSearch" class="clear-search" type="button" aria-label="清空搜索">x</button>
+        </div>
+        <button class="search-submit" type="submit"><span class="button-search-glyph" aria-hidden="true"></span>搜索</button>
       </form>
       <div id="statusLine" class="status-line" role="status"></div>
     </section>
