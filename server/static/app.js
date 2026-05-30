@@ -48,16 +48,16 @@ async function copyText(value, button) {
   try {
     await navigator.clipboard.writeText(value);
     const previous = button.textContent;
-    button.textContent = "Copied";
+    button.textContent = "已复制";
     setTimeout(() => {
       button.textContent = previous;
     }, 1200);
   } catch {
-    setStatus("Clipboard is unavailable in this browser.");
+    setStatus("当前浏览器不可用剪贴板。");
   }
 }
 
-function renderEmpty(message = "Select an artifact", detail = "Versions and dependency coordinates appear here.") {
+function renderEmpty(message = "选择一个包", detail = "这里会显示版本和依赖坐标。") {
   detailsPanel.innerHTML = `
     <div class="empty-state">
       <div class="empty-title">${html(message)}</div>
@@ -81,14 +81,14 @@ function renderResults(items) {
     resultsList.innerHTML = `
       <div class="result-item">
         <div class="result-title">
-          <span class="artifact">No artifacts found</span>
+          <span class="artifact">没有找到匹配的包</span>
         </div>
-        <div class="meta-row">
-          <span class="badge">Try another query</span>
-        </div>
+        <div class="result-cell latest">换个关键词试试</div>
+        <div class="result-cell stable"></div>
+        <div class="result-cell count"></div>
       </div>
     `;
-    renderEmpty("No selection", "Search results will appear on the left.");
+    renderEmpty("没有结果", "搜索结果会显示在左侧。");
     return;
   }
 
@@ -102,11 +102,9 @@ function renderResults(items) {
         <span class="artifact">${html(item.artifactId)}</span>
         <span class="group">${html(item.groupId)}</span>
       </div>
-      <div class="meta-row">
-        <span class="badge latest">latest ${html(text(item.latestVersion, "n/a"))}</span>
-        <span class="badge stable">stable ${html(text(item.latestStableVersion, "n/a"))}</span>
-        <span class="badge">${html(item.versionCount)} versions</span>
-      </div>
+      <div class="result-cell latest">${html(text(item.latestVersion, "-"))}</div>
+      <div class="result-cell stable">${html(text(item.latestStableVersion, "-"))}</div>
+      <div class="result-cell count">${html(item.versionCount)}</div>
     `;
     button.addEventListener("click", () => selectArtifact(item));
     resultsList.append(button);
@@ -128,7 +126,7 @@ async function selectArtifact(result) {
   setActiveResult(key);
   detailsPanel.innerHTML = `
     <div class="empty-state">
-      <div class="empty-title">Loading versions</div>
+      <div class="empty-title">正在加载版本</div>
       <div>${html(key)}</div>
     </div>
   `;
@@ -157,34 +155,34 @@ function renderDetails(result) {
     <h2 class="details-title">${html(result.artifactId)}</h2>
     <div class="details-subtitle">${html(result.groupId)}</div>
     <div class="meta-row">
-      <span class="badge latest">latest ${html(text(result.latestVersion, "n/a"))}</span>
-      <span class="badge stable">stable ${html(text(result.latestStableVersion, "n/a"))}</span>
-      <span class="badge">${html(result.versionCount || versions.length)} versions</span>
+      <span class="badge latest">最新 ${html(text(result.latestVersion, "-"))}</span>
+      <span class="badge stable">稳定 ${html(text(result.latestStableVersion, "-"))}</span>
+      <span class="badge">${html(result.versionCount || versions.length)} 个版本</span>
     </div>
     <div class="copy-stack">
       <div class="coord-block">
         <label>Maven</label>
         <div class="coord-row">
           <code id="mavenCoord"></code>
-          <button class="copy-button" type="button" id="copyMaven">Copy</button>
+          <button class="copy-button" type="button" id="copyMaven">复制</button>
         </div>
       </div>
       <div class="coord-block">
         <label>Gradle</label>
         <div class="coord-row">
           <code id="gradleCoord"></code>
-          <button class="copy-button" type="button" id="copyGradle">Copy</button>
+          <button class="copy-button" type="button" id="copyGradle">复制</button>
         </div>
       </div>
     </div>
-    <div class="version-list" aria-label="Versions">
+    <div class="version-list" aria-label="版本列表">
       ${visibleVersions.map((item) => `
         <div class="version-row">
           <code>${html(item.v)}</code>
-          <span>${item.stable ? "stable" : html(text(item.p, ""))}</span>
+          <span>${item.stable ? "稳定版" : html(text(item.p, ""))}</span>
         </div>
       `).join("")}
-      ${versions.length > visibleVersions.length ? `<div class="version-row"><code>${html(versions.length - visibleVersions.length)} more</code><span></span></div>` : ""}
+      ${versions.length > visibleVersions.length ? `<div class="version-row"><code>还有 ${html(versions.length - visibleVersions.length)} 个版本</code><span></span></div>` : ""}
     </div>
   `;
 
@@ -194,7 +192,7 @@ function renderDetails(result) {
   detailsPanel.querySelector("#copyGradle").addEventListener("click", (event) => copyText(gradleText, event.currentTarget));
 
   if (!version) {
-    setStatus("Selected artifact has no latest version in this index.");
+    setStatus("这个包在当前索引里没有最新版本字段。");
   }
 }
 
@@ -207,9 +205,9 @@ async function search(query) {
     return;
   }
 
-  setStatus(`Searching "${trimmed}"`);
+  setStatus(`正在搜索“${trimmed}”`);
   resultsList.innerHTML = "";
-  renderEmpty("Search in progress", trimmed);
+  renderEmpty("正在搜索", trimmed);
 
   try {
     const params = new URLSearchParams({ q: trimmed, limit: "20" });
@@ -221,11 +219,11 @@ async function search(query) {
     const results = Array.isArray(data.results) ? data.results : [];
     activeKey = "";
     renderResults(results);
-    setStatus(`${results.length} result${results.length === 1 ? "" : "s"} for "${trimmed}"`);
+    setStatus(`“${trimmed}”找到 ${results.length} 个结果`);
   } catch (error) {
     resultsList.innerHTML = "";
-    setStatus("Search failed.");
-    renderError("Search unavailable", error.message);
+    setStatus("搜索失败。");
+    renderError("搜索不可用", error.message);
   }
 }
 
@@ -236,9 +234,9 @@ async function loadHealth() {
       throw new Error(`HTTP ${response.status}`);
     }
     const data = await response.json();
-    healthText.textContent = `${Number(data.artifacts || 0).toLocaleString()} artifacts indexed`;
+    healthText.textContent = `已索引 ${Number(data.artifacts || 0).toLocaleString()} 个 Maven 包`;
   } catch {
-    healthText.textContent = "Index status unavailable";
+    healthText.textContent = "索引状态不可用";
   }
 }
 

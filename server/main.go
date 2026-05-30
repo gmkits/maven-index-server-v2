@@ -35,6 +35,8 @@ type preparedQueries struct {
 	exactGANorm         *sql.Stmt
 	exactArtifactID     *sql.Stmt
 	exactArtifactIDNorm *sql.Stmt
+	prefixArtifactNorm  *sql.Stmt
+	prefixGANorm        *sql.Stmt
 	fts                 *sql.Stmt
 	versions            *sql.Stmt
 }
@@ -200,6 +202,24 @@ func prepareQueries(db *sql.DB) (preparedQueries, error) {
 		q.close()
 		return q, err
 	}
+	if q.prefixArtifactNorm, err = db.Prepare(`
+		SELECT group_id, artifact_id, latest_version, latest_stable_version, version_count
+		FROM artifacts
+		WHERE artifact_id_norm >= ? AND artifact_id_norm < ?
+		ORDER BY version_count DESC
+		LIMIT ?`); err != nil {
+		q.close()
+		return q, err
+	}
+	if q.prefixGANorm, err = db.Prepare(`
+		SELECT group_id, artifact_id, latest_version, latest_stable_version, version_count
+		FROM artifacts
+		WHERE ga_norm >= ? AND ga_norm < ?
+		ORDER BY version_count DESC
+		LIMIT ?`); err != nil {
+		q.close()
+		return q, err
+	}
 	if q.fts, err = db.Prepare(`
 		SELECT a.group_id, a.artifact_id, a.latest_version, a.latest_stable_version,
 		       a.version_count, rank
@@ -226,6 +246,8 @@ func (q preparedQueries) close() {
 		q.exactGANorm,
 		q.exactArtifactID,
 		q.exactArtifactIDNorm,
+		q.prefixArtifactNorm,
+		q.prefixGANorm,
 		q.fts,
 		q.versions,
 	} {
@@ -302,14 +324,20 @@ func searchHandler(c *gin.Context) {
 	qNorm := normalizeForQuery(q)
 
 	querySearchRows(h.queries.exactGA, 1000, results, q)
-	if qNorm != "" && qNorm != q {
+	if qNorm != "" {
 		querySearchRows(h.queries.exactGANorm, 950, results, qNorm)
 	}
 	if len(results) < limit {
 		querySearchRows(h.queries.exactArtifactID, 500, results, q, limit*2)
 	}
-	if len(results) < limit && qNorm != "" && qNorm != q {
-		querySearchRows(h.queries.exactArtifactIDNorm, 450, results, qNorm, limit*2)
+	if qNorm != "" {
+		querySearchRows(h.queries.exactArtifactIDNorm, 650, results, qNorm, limit*2)
+	}
+	if len(results) < limit && qNorm != "" {
+		queryPrefixRows(h.queries.prefixArtifactNorm, 420, results, qNorm, limit*3)
+	}
+	if len(results) < limit && qNorm != "" {
+		queryPrefixRows(h.queries.prefixGANorm, 360, results, qNorm, limit*3)
 	}
 	if len(results) < limit {
 		ftsSearch(h.queries.fts, q, limit, results)
@@ -338,6 +366,14 @@ func querySearchRows(stmt *sql.Stmt, score float64, results map[string]*searchRe
 	}
 	defer rows.Close()
 	collectSearchRows(rows, score, results)
+}
+
+func queryPrefixRows(stmt *sql.Stmt, score float64, results map[string]*searchResult, prefix string, limit int) {
+	upper := prefixUpperBound(prefix)
+	if upper == "" {
+		return
+	}
+	querySearchRows(stmt, score, results, prefix, upper, limit)
 }
 
 func collectSearchRows(rows *sql.Rows, score float64, results map[string]*searchResult) {
@@ -563,6 +599,20 @@ func normalizeForQuery(input string) string {
 		}
 	}
 	return b.String()
+}
+
+func prefixUpperBound(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	bytes := []byte(prefix)
+	for i := len(bytes) - 1; i >= 0; i-- {
+		if bytes[i] < 0xff {
+			bytes[i]++
+			return string(bytes[:i+1])
+		}
+	}
+	return ""
 }
 
 func resolveDBPath(baseDir string, directDB string) string {

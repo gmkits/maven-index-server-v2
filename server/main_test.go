@@ -15,6 +15,19 @@ func TestNormalizeForQuery(t *testing.T) {
 	}
 }
 
+func TestPrefixUpperBound(t *testing.T) {
+	tests := map[string]string{
+		"springboot": "springboou",
+		"a":          "b",
+		"":           "",
+	}
+	for input, want := range tests {
+		if got := prefixUpperBound(input); got != want {
+			t.Fatalf("prefixUpperBound(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestBuildFTSQuery(t *testing.T) {
 	got := buildFTSQuery(`spring "boot"`)
 	want := `"spring"* OR """boot"""*`

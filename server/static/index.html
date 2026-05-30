@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Maven Index Search</title>
+  <title>Maven 包搜索</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -11,14 +11,14 @@
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">M</div>
       <div>
-        <h1>Maven Index Search</h1>
-        <p id="healthText">Loading index status</p>
+        <h1>Maven 包搜索</h1>
+        <p id="healthText">正在读取索引状态</p>
       </div>
     </div>
   </header>
 
   <main class="shell">
-    <section class="search-panel" aria-label="Search Maven artifacts">
+    <section class="search-panel" aria-label="搜索 Maven 包">
       <form id="searchForm" class="search-form">
         <input
           id="searchInput"
@@ -26,22 +26,28 @@
           type="search"
           autocomplete="off"
           spellcheck="false"
-          placeholder="spring boot, junit, org.slf4j:slf4j-api"
-          aria-label="Search query">
-        <button type="submit">Search</button>
+          placeholder="搜索 groupId、artifactId，例如 springboot、spring boot、org.slf4j:slf4j-api"
+          aria-label="搜索关键词">
+        <button type="submit">搜索</button>
       </form>
       <div id="statusLine" class="status-line" role="status"></div>
     </section>
 
     <section class="content-grid">
-      <div class="results-region" aria-label="Search results">
+      <div class="results-region" aria-label="搜索结果">
+        <div class="list-head">
+          <span>包名</span>
+          <span>最新版本</span>
+          <span>稳定版本</span>
+          <span>版本数</span>
+        </div>
         <div id="resultsList" class="results-list"></div>
       </div>
 
-      <aside id="detailsPanel" class="details-panel" aria-label="Artifact details">
+      <aside id="detailsPanel" class="details-panel" aria-label="包详情">
         <div class="empty-state">
-          <div class="empty-title">Select an artifact</div>
-          <div class="empty-copy">Versions and dependency coordinates appear here.</div>
+          <div class="empty-title">选择一个包</div>
+          <div class="empty-copy">这里会显示版本和依赖坐标。</div>
         </div>
       </aside>
     </section>
