@@ -560,51 +560,26 @@ h1 {
   background: var(--amber-soft);
 }
 
-.detail-tabs {
-  display: flex;
-  gap: 30px;
-  border-bottom: 1px solid var(--line);
-  margin-top: 18px;
+.detail-section {
+  margin-top: 20px;
 }
 
-.detail-tabs button {
-  position: relative;
-  border: 0;
-  background: transparent;
-  color: #314a77;
-  padding: 0 0 13px;
-  font-size: 15px;
-  font-weight: 760;
-  cursor: pointer;
+.detail-section h3 {
+  margin: 0 0 12px;
+  color: #0d2855;
+  font-size: 16px;
+  font-weight: 800;
 }
 
-.detail-tabs button.active {
-  color: var(--blue);
-}
-
-.detail-tabs button.active::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: var(--blue);
-}
-
-.tab-panel {
-  display: block;
-}
-
-.tab-panel.active {
-  display: block;
+.version-section {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
 }
 
 .coord-block {
   display: grid;
   gap: 10px;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .coord-block label {
@@ -677,7 +652,6 @@ h1 {
   grid-template-columns: minmax(0, 1fr) 110px 64px;
   gap: 10px;
   align-items: center;
-  margin-top: 18px;
   color: #314a77;
   font-size: 14px;
   font-weight: 760;

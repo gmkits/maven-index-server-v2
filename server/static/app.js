@@ -204,11 +204,8 @@ function renderDetails(result) {
       <span class="badge stable">稳定 ${html(text(result.latestStableVersion, "-"))}</span>
       <span class="badge">${html(result.versionCount || versions.length)} 个版本</span>
     </div>
-    <div class="detail-tabs" role="tablist" aria-label="详情分类">
-      <button class="active" type="button" data-tab="dependency">依赖引入</button>
-      <button type="button" data-tab="versions">版本历史</button>
-    </div>
-    <section class="tab-panel active" data-panel="dependency">
+    <section class="detail-section dependency-section">
+      <h3>依赖引入</h3>
       <div class="coord-block">
         <label><span class="tool-mark">M</span> Maven</label>
         <div class="coord-row">
@@ -224,7 +221,7 @@ function renderDetails(result) {
         </div>
       </div>
     </section>
-    <section class="tab-panel" data-panel="versions">
+    <section class="detail-section version-section">
       ${versionHistoryHTML(versions)}
     </section>
   `;
@@ -234,13 +231,10 @@ function renderDetails(result) {
   detailsPanel.querySelector("#copyGA").addEventListener("click", (event) => copyText(`${result.groupId}:${result.artifactId}`, event.currentTarget));
   detailsPanel.querySelector("#copyMaven").addEventListener("click", (event) => copyText(mavenText, event.currentTarget));
   detailsPanel.querySelector("#copyGradle").addEventListener("click", (event) => copyText(gradleText, event.currentTarget));
-  for (const tab of detailsPanel.querySelectorAll("[data-tab]")) {
-    tab.addEventListener("click", () => activateTab(tab.dataset.tab));
-  }
   const moreVersions = detailsPanel.querySelector(".more-versions");
   if (moreVersions) {
     moreVersions.addEventListener("click", () => {
-      detailsPanel.querySelector('[data-panel="versions"]').innerHTML = versionHistoryHTML(versions, true);
+      detailsPanel.querySelector(".version-section").innerHTML = versionHistoryHTML(versions, true);
     });
   }
 
@@ -267,15 +261,6 @@ function versionHistoryHTML(versions, expanded = false) {
     </div>
     ${versions.length > visibleVersions.length ? `<button class="more-versions" type="button">查看更多版本</button>` : ""}
   `;
-}
-
-function activateTab(name) {
-  for (const tab of detailsPanel.querySelectorAll("[data-tab]")) {
-    tab.classList.toggle("active", tab.dataset.tab === name);
-  }
-  for (const panel of detailsPanel.querySelectorAll("[data-panel]")) {
-    panel.classList.toggle("active", panel.dataset.panel === name);
-  }
 }
 
 async function search(query) {
